@@ -6,14 +6,14 @@ namespace CleanAll;
 
 internal class CleanCommand : RootCommand
 {
-    public CleanCommand() : base("Clean-All")
+    public CleanCommand() : base("CleanAll")
     {
         this.Description = "Delete all of the bin and obj directories and their contents in a solution or project folder.";
         this.AddAlias("CleanAll");
 
-        Argument<string> pathArgument = new("Solution|Project");
+        Argument<string?> pathArgument = new("Solution|Project");
         pathArgument.Description = "Path to the solution file, project file or directory to clean.";
-        pathArgument.SetDefaultValue(Directory.GetCurrentDirectory());
+        pathArgument.SetDefaultValue(null);
 
         Option<bool> dryRunOption = new("--dry-run");
         dryRunOption.AddAlias("-dr");
@@ -59,7 +59,7 @@ internal class CleanCommand : RootCommand
                 return 1;
             }
 
-            // TODO: if a solution, go through and only purge the projects that are in the solution
+            isDotnetPath = true;
 
             // get the directory path, otherwise path is already a directory
             directoryPath = Path.GetDirectoryName(path);
