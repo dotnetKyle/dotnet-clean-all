@@ -34,20 +34,44 @@ internal class CleanCommand : RootCommand
         if(string.IsNullOrWhiteSpace(path))
             path = Environment.CurrentDirectory;
 
-        var dir = Path.GetDirectoryName(path);
-        var fileName = Path.GetFileName(path);
-        var ext = Path.GetExtension(path);
 
-        // TODO: if a solution, go through and only purge the projects that are in the solution
-
-        if (dir is null || !Directory.Exists(dir))
+        string? directoryPath;
+        bool isDirectoryPath = Directory.Exists(path);
+        bool isDotnetPath = false;
+        if(isDirectoryPath)
         {
-            Console.Error.WriteLine("The provided directory does not exist.");
+            directoryPath = path;
+        }
+        else if(File.Exists(path))
+        {
+            var ext = Path.GetExtension(path);
+            if(ext != ".sln" && ext != ".csproj")
+            {
+                ConsoleColorRed();
+                Console.Error.WriteLine("File is not a solution or project file.");
+                ResetConsoleColor();
+                return;
+            }
+
+            isDotnetPath = true;
+
+            // get the directory path, otherwise path is already a directory
+            directoryPath = Path.GetDirectoryName(path);
+
+
+        }
+        else
+        {
+            ConsoleColorRed();
+            Console.Error.WriteLine("Could not find file or directory path.");
+            ResetConsoleColor();
+            // exit because no directory to search
             return;
         }
 
+        // TODO: if a solution, go through and only clean the projects that are in the solution
 
-        IEnumerable<string> all = Directory.EnumerateDirectories(dir, "bin",
+        IEnumerable<string> allDeletableDirectories = Directory.EnumerateDirectories(directoryPath, "bin",
             new EnumerationOptions
             {
                 RecurseSubdirectories = true,
@@ -56,7 +80,7 @@ internal class CleanCommand : RootCommand
             })
             .Where(directory => directory.EndsWith("\\bin") || directory.EndsWith("/bin"))
             .Concat(
-            Directory.EnumerateDirectories(dir, "obj",
+            Directory.EnumerateDirectories(directoryPath, "obj",
                 new EnumerationOptions
                 {
                     RecurseSubdirectories = true,
@@ -66,19 +90,30 @@ internal class CleanCommand : RootCommand
                 .Where(directory => directory.EndsWith("\\obj") || directory.EndsWith("/obj"))
             );
 
-        if (all.Any() == false)
+        if (allDeletableDirectories.Any() == false)
         {
-            ConsoleColorRed();
-            Console.Error.WriteLine("No bin/ or obj/ directories found to delete.");
-            RestoreConsoleColor();
+            // this is not an error
+            Console.WriteLine("No bin/ or obj/ directories found to delete.");
             return;
         }
 
-        foreach (var binObj in all)
+        foreach (var binObj in allDeletableDirectories)
         {
             try
             {
+                if (dryRun)
+                {
+                    Console.Write("Dry run: ");
+                    ConsoleColorGray();
+                }
+
                 Console.WriteLine($"Deleting {binObj}...");
+
+                if (dryRun)
+                {
+                    ResetConsoleColor();
+                }
+
                 if (!dryRun)
                 {
                     Directory.Delete(binObj, recursive: true);
@@ -88,17 +123,24 @@ internal class CleanCommand : RootCommand
             {
                 ConsoleColorRed();
                 Console.Error.WriteLine(ex.Message);
-                RestoreConsoleColor();
+                ResetConsoleColor();
             }
         }
+
+        return;
     }
 
+    static void ConsoleColorGray()
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+    }
     static void ConsoleColorRed()
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             Console.ForegroundColor = ConsoleColor.Red;
     }
-    static void RestoreConsoleColor()
+    static void ResetConsoleColor()
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             Console.ResetColor();
