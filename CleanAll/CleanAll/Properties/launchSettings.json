@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "CleanAll": {
+      "commandName": "Project",
+      //"commandLineArgs": "-h"
+      "commandLineArgs": "CleanAll \"C:\\Users\\kylbr\\source\\repos\\ShellRunner\\src\\ShellRunner.sln\""
+    }
+  }
+}
