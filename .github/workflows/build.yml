@@ -1,0 +1,94 @@
+name: .NET
+
+on:
+  push:
+    branches: [ "stable" ]
+
+env:
+  BUILD_VERSION: 0.0.0.${{github.run_number}}
+  SLN_PATH: src/CleanAll.sln
+  PROJECT_PATH: src/CleanAll/CleanAll.csproj
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    - name: Restore dependencies
+      run: dotnet restore $SLN_PATH
+
+    - name: Build
+      run: dotnet build $SLN_PATH 
+           -c Release 
+           --no-restore 
+           -p:Version=$BUILD_VERSION
+           
+    - name: Pack-Alpha
+      run: dotnet pack $PROJECT_PATH
+           -c Release 
+           --no-restore 
+           --no-build
+           -p:PackageVersion=$BUILD_VERSION-alpha
+           -o alpha-packages
+
+    - name: Pack-Release
+      run: dotnet pack $PROJECT_PATH
+           -c Release 
+           --no-restore 
+           --no-build
+           -p:PackageVersion=$BUILD_VERSION
+           -o packages
+
+    - name: Upload ShellRunner PreRelease Artifacts
+      uses: actions/upload-artifact@v4.6.1
+      with:
+        name: PreReleaseArtifacts
+        path: alpha-packages/*.nupkg
+        if-no-files-found: error
+           
+    - name: Upload ShellRunner Release Artifacts
+      uses: actions/upload-artifact@v4.6.1
+      with:
+        name: ReleaseArtifacts
+        path: packages/*.nupkg
+        if-no-files-found: error
+
+  pre-release:
+    needs: build
+    name: Deploy Pre-Release Nugets
+    environment: 
+      name: Integration
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Download artifacts
+      uses: actions/download-artifact@v4.1.9
+      with:
+        name: PreReleaseArtifacts    
+      
+    - name: Push ShellRunner Pre-Release Nuget
+      run: dotnet nuget push ./**/*-alpha.nupkg 
+           --api-key ${{secrets.NUGETKEY}} --source https://api.nuget.org/v3/index.json
+
+  release:
+    needs: build
+    name: Deploy Release Nugets
+    environment: 
+      name: Production
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Download artifacts
+      uses: actions/download-artifact@v4.1.9
+      with:
+        name: ReleaseArtifacts    
+           
+    - name: Push ShellRunner Pre-Release Nuget
+      run: dotnet nuget push ./**/*.nupkg 
+           --api-key ${{secrets.NUGETKEY}} --source https://api.nuget.org/v3/index.json
