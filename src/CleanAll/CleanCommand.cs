@@ -35,107 +35,118 @@ internal class CleanCommand : RootCommand
 
     static int Execute(string? path, bool dryRun)
     {
-        // cannot specify current directory as an Argument.SetDefaultValue because it caches
-        //   the value. Instead evaluate it when the command is ran during Execute().
-        if(string.IsNullOrWhiteSpace(path))
-            path = Environment.CurrentDirectory;
-
-
-        string? directoryPath;
-        bool isDirectoryPath = Directory.Exists(path);
-        bool isDotnetPath = false;
-        if(isDirectoryPath)
+        try
         {
-            directoryPath = path;
-        }
-        else if(File.Exists(path))
-        {
-            var ext = Path.GetExtension(path);
-            if(ext != ".sln" && ext != ".csproj")
+            // cannot specify current directory as an Argument.SetDefaultValue because it caches
+            //   the value. Instead evaluate it when the command is ran during Execute().
+            if(string.IsNullOrWhiteSpace(path))
+                path = Environment.CurrentDirectory;
+
+            path = Path.GetFullPath(path);
+
+            string? directoryPath;
+            bool isDirectoryPath = Directory.Exists(path);
+            bool isDotnetPath = false;
+            if(isDirectoryPath)
+            {
+                directoryPath = path;
+            }
+            else if(File.Exists(path))
+            {
+                var ext = Path.GetExtension(path);
+                if(ext != ".sln" && ext != ".csproj")
+                {
+                    ConsoleColorRed();
+                    Console.Error.WriteLine("File is not a solution or project file.");
+                    ResetConsoleColor();
+                    return 1;
+                }
+
+                isDotnetPath = true;
+
+                // get the directory path, otherwise path is already a directory
+                directoryPath = Path.GetDirectoryName(path);
+            }
+            else
             {
                 ConsoleColorRed();
-                Console.Error.WriteLine("File is not a solution or project file.");
+                Console.Error.WriteLine("Could not find file or directory path.");
                 ResetConsoleColor();
+
+                // exit because no directory to search
                 return 1;
             }
 
-            isDotnetPath = true;
+            if(string.IsNullOrWhiteSpace(directoryPath))
+                throw new ArgumentException("Invalid path");
 
-            // get the directory path, otherwise path is already a directory
-            directoryPath = Path.GetDirectoryName(path);
-        }
-        else
-        {
-            ConsoleColorRed();
-            Console.Error.WriteLine("Could not find file or directory path.");
-            ResetConsoleColor();
+            // TODO: if a solution, go through and only clean the projects that are in the solution
 
-            // exit because no directory to search
-            return 1;
-        }
-
-        if(string.IsNullOrWhiteSpace(directoryPath))
-            throw new ArgumentException("Invalid path");
-
-        // TODO: if a solution, go through and only clean the projects that are in the solution
-
-        IEnumerable<string> allDeletableDirectories = Directory.EnumerateDirectories(directoryPath, "bin",
-            new EnumerationOptions
-            {
-                RecurseSubdirectories = true,
-                MatchCasing = MatchCasing.CaseInsensitive,
-                ReturnSpecialDirectories = false
-            })
-            .Where(directory => directory.EndsWith("\\bin") || directory.EndsWith("/bin"))
-            .Concat(
-            Directory.EnumerateDirectories(directoryPath, "obj",
+            IEnumerable<string> allDeletableDirectories = Directory.EnumerateDirectories(directoryPath, "bin",
                 new EnumerationOptions
                 {
                     RecurseSubdirectories = true,
                     MatchCasing = MatchCasing.CaseInsensitive,
                     ReturnSpecialDirectories = false
                 })
-                .Where(directory => directory.EndsWith("\\obj") || directory.EndsWith("/obj"))
-            );
+                .Where(directory => directory.EndsWith("\\bin") || directory.EndsWith("/bin"))
+                .Concat(
+                Directory.EnumerateDirectories(directoryPath, "obj",
+                    new EnumerationOptions
+                    {
+                        RecurseSubdirectories = true,
+                        MatchCasing = MatchCasing.CaseInsensitive,
+                        ReturnSpecialDirectories = false
+                    })
+                    .Where(directory => directory.EndsWith("\\obj") || directory.EndsWith("/obj"))
+                );
 
-        if (allDeletableDirectories.Any() == false)
-        {
-            // this is not an error
-            Console.WriteLine("No bin/ or obj/ directories found to delete.");
-            return 0;
-        }
-
-        foreach (var binObj in allDeletableDirectories)
-        {
-            try
+            if (allDeletableDirectories.Any() == false)
             {
-                if (dryRun)
+                // this is not an error
+                Console.WriteLine("No bin/ or obj/ directories found to delete.");
+                return 0;
+            }
+
+            foreach (var binObj in allDeletableDirectories)
+            {
+                try
                 {
-                    Console.Write("Dry run: ");
-                    ConsoleColorGray();
+                    if (dryRun)
+                    {
+                        Console.Write("Dry run: ");
+                        ConsoleColorGray();
+                    }
+
+                    Console.WriteLine($"Deleting {binObj}...");
+
+                    if (dryRun)
+                    {
+                        ResetConsoleColor();
+                    }
+
+                    if (!dryRun)
+                    {
+                        Directory.Delete(binObj, recursive: true);
+                    }
                 }
-
-                Console.WriteLine($"Deleting {binObj}...");
-
-                if (dryRun)
+                catch (Exception ex)
                 {
+                    ConsoleColorRed();
+                    Console.Error.WriteLine(ex.Message);
                     ResetConsoleColor();
                 }
+            }
 
-                if (!dryRun)
-                {
-                    Directory.Delete(binObj, recursive: true);
-                }
-            }
-            catch (Exception ex)
-            {
-                ConsoleColorRed();
-                Console.Error.WriteLine(ex.Message);
-                ResetConsoleColor();
-            }
+            return 0;
         }
-
-        return 0;
+        catch (Exception ex)
+        {
+            ConsoleColorRed();
+            Console.Error.WriteLine(ex.Message);
+            ResetConsoleColor();
+            return 1;
+        }
     }
 
     static void ConsoleColorGray()
