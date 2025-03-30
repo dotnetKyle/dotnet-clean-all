@@ -1,4 +1,5 @@
 ﻿using System.CommandLine;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace CleanAll;
@@ -24,10 +25,15 @@ internal class CleanCommand : RootCommand
         this.AddOption(dryRunOption);
 
         // set the handler
-        this.SetHandler(Execute, pathArgument, dryRunOption);
+        this.SetHandler((context) => {
+            var path = context.ParseResult.GetValueForArgument(pathArgument);
+            var dryRun = context.ParseResult.GetValueForOption(dryRunOption);
+
+            context.ExitCode = Execute(path, dryRun);
+        });
     }
 
-    static void Execute(string? path, bool dryRun)
+    static int Execute(string? path, bool dryRun)
     {
         // cannot specify current directory as an Argument.SetDefaultValue because it caches
         //   the value. Instead evaluate it when the command is ran during Execute().
@@ -50,24 +56,26 @@ internal class CleanCommand : RootCommand
                 ConsoleColorRed();
                 Console.Error.WriteLine("File is not a solution or project file.");
                 ResetConsoleColor();
-                return;
+                return 1;
             }
 
             isDotnetPath = true;
 
             // get the directory path, otherwise path is already a directory
             directoryPath = Path.GetDirectoryName(path);
-
-
         }
         else
         {
             ConsoleColorRed();
             Console.Error.WriteLine("Could not find file or directory path.");
             ResetConsoleColor();
+
             // exit because no directory to search
-            return;
+            return 1;
         }
+
+        if(string.IsNullOrWhiteSpace(directoryPath))
+            throw new ArgumentException("Invalid path");
 
         // TODO: if a solution, go through and only clean the projects that are in the solution
 
@@ -94,7 +102,7 @@ internal class CleanCommand : RootCommand
         {
             // this is not an error
             Console.WriteLine("No bin/ or obj/ directories found to delete.");
-            return;
+            return 0;
         }
 
         foreach (var binObj in allDeletableDirectories)
@@ -127,7 +135,7 @@ internal class CleanCommand : RootCommand
             }
         }
 
-        return;
+        return 0;
     }
 
     static void ConsoleColorGray()
