@@ -3,7 +3,7 @@
     "CleanAll": {
       "commandName": "Project",
       //"commandLineArgs": "-h"
-      "commandLineArgs": "CleanAll \"C:\\Users\\kylbr\\source\\repos\\dotnet-clean-all\\src\\CleanAll.sln\" -dr"
+      "commandLineArgs": "CleanAll \"..\\..\\..\\..\\CleanAll.sln\" -dr"
     }
   }
 }
