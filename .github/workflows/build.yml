@@ -45,14 +45,14 @@ jobs:
            -p:PackageVersion=$BUILD_VERSION
            -o packages
 
-    - name: Upload ShellRunner PreRelease Artifacts
+    - name: Upload PreRelease Artifacts
       uses: actions/upload-artifact@v4.6.1
       with:
         name: PreReleaseArtifacts
         path: alpha-packages/*.nupkg
         if-no-files-found: error
            
-    - name: Upload ShellRunner Release Artifacts
+    - name: Upload Release Artifacts
       uses: actions/upload-artifact@v4.6.1
       with:
         name: ReleaseArtifacts
@@ -72,7 +72,7 @@ jobs:
       with:
         name: PreReleaseArtifacts    
       
-    - name: Push ShellRunner Pre-Release Nuget
+    - name: Push Pre-Release Nuget
       run: dotnet nuget push ./**/*-alpha.nupkg 
            --api-key ${{secrets.NUGETKEY}} --source https://api.nuget.org/v3/index.json
 
