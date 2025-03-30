@@ -8,7 +8,7 @@ To install globally, just run:
 dotnet tool install -g dotnetkyle.cleanall
 ```
 
-Then run `clean-all` in the directory that you want to recursively remove the bin and obj folders in.
+Then run `CleanAll` in the directory that you want to recursively remove the bin and obj folders in.
 
 
 ## Usage
@@ -16,23 +16,23 @@ Then run `clean-all` in the directory that you want to recursively remove the bi
 Delete all from the current directory and it's sub-directories:
 
 ```bash
-clean-all
+CleanAll
 ```
 
 Test what the command would do to a specific directory (dry run):
 
 ```bash
-clean-all MyFolder --dry-run
+CleanAll MyFolder --dry-run
 ```
 
 Delete all from a solution's parent directory:
 
 ```bash
-clean-all MyFolder\MyProject.sln
+CleanAll MyFolder\MyProject.sln
 ```
 
 Delete all from a project's parent directory:
 
 ```bash
-clean-all MyFolder\MyProject\MyProject.csproj
+CleanAll MyFolder\MyProject\MyProject.csproj
 ```
