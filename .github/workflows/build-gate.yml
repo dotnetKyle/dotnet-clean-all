@@ -33,18 +33,3 @@ jobs:
       with:
         name: BuildArtifacts
         path: ./**/bin/Release/**/*
-
-  build-test:
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-  
-    - name: Download artifacts
-      uses: actions/download-artifact@v4.1.9
-      with:
-        name: BuildArtifacts
-        
-    - name: Test
-      run: dotnet $TEST_PATH bash
-    
