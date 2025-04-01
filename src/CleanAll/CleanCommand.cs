@@ -1,6 +1,12 @@
 ﻿using System.CommandLine;
+using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Microsoft.VisualStudio.SolutionPersistence;
+using Microsoft.VisualStudio.SolutionPersistence.Model;
+using Microsoft.VisualStudio.SolutionPersistence.Serializer;
+using Microsoft.VisualStudio.SolutionPersistence.Serializer.SlnV12;
+using ShellRunner;
 
 namespace CleanAll;
 
@@ -25,15 +31,15 @@ internal class CleanCommand : RootCommand
         this.AddOption(dryRunOption);
 
         // set the handler
-        this.SetHandler((context) => {
-            var path = context.ParseResult.GetValueForArgument(pathArgument);
-            var dryRun = context.ParseResult.GetValueForOption(dryRunOption);
+        this.SetHandler(async (context) => {
+            string? path = context.ParseResult.GetValueForArgument(pathArgument);
+            bool dryRun = context.ParseResult.GetValueForOption(dryRunOption);
 
-            context.ExitCode = Execute(path, dryRun);
+            context.ExitCode = await ExecuteAsync(path, dryRun);
         });
     }
 
-    static int Execute(string? path, bool dryRun)
+    static async Task<int> ExecuteAsync(string? path, bool dryRun)
     {
         try
         {
@@ -80,37 +86,45 @@ internal class CleanCommand : RootCommand
             if(string.IsNullOrWhiteSpace(directoryPath))
                 throw new ArgumentException("Invalid path");
 
-            // TODO: if a solution, go through and only clean the projects that are in the solution
-
-            IEnumerable<string> allDeletableDirectories = Directory.EnumerateDirectories(directoryPath, "bin",
-                new EnumerationOptions
+            if(isDotnetPath)
+            {
+                string ext = Path.GetExtension(path);
+                if(ext == ".sln")
                 {
-                    RecurseSubdirectories = true,
-                    MatchCasing = MatchCasing.CaseInsensitive,
-                    ReturnSpecialDirectories = false
-                })
-                .Where(directory => directory.EndsWith("\\bin") || directory.EndsWith("/bin"))
-                .Concat(
-                Directory.EnumerateDirectories(directoryPath, "obj",
-                    new EnumerationOptions
+                    ISolutionSerializer? serializer = SolutionSerializers.GetSerializerByMoniker(path);
+
+                    if(serializer is not null)
                     {
-                        RecurseSubdirectories = true,
-                        MatchCasing = MatchCasing.CaseInsensitive,
-                        ReturnSpecialDirectories = false
-                    })
-                    .Where(directory => directory.EndsWith("\\obj") || directory.EndsWith("/obj"))
-                );
+                        SolutionModel slnModel = await serializer.OpenAsync(path, CancellationToken.None);
+                        string solutionDirectory = Path.GetDirectoryName(path) ?? throw new ArgumentException("Solution Directory is invalid");
 
-            if (allDeletableDirectories.Any() == false)
-            {
-                // this is not an error
-                Console.WriteLine("No bin/ or obj/ directories found to delete.");
-                return 0;
-            }
+                        var platforms = slnModel.Platforms;
+                        var buildTypes = slnModel.BuildTypes;
 
-            foreach (var binObj in allDeletableDirectories)
-            {
-                try
+                        foreach(SolutionProjectModel project in slnModel.SolutionProjects)
+                        {
+
+                            if (dryRun)
+                            {
+                                Console.Write("Dry run: ");
+                                ConsoleColorGray();
+                            }
+                            Console.WriteLine("Cleaning {0}...", project.ActualDisplayName);
+
+                            var fullProjectPath = Path.Combine(solutionDirectory, project.FilePath);
+
+                            await CleanProjectOutputPaths(fullProjectPath, dryRun);
+
+                            if (dryRun)
+                            {
+                                ResetConsoleColor();
+                            }
+                        }
+                    }
+
+                    return 0;
+                }
+                else if(ext == ".csproj")
                 {
                     if (dryRun)
                     {
@@ -118,27 +132,85 @@ internal class CleanCommand : RootCommand
                         ConsoleColorGray();
                     }
 
-                    Console.WriteLine($"Deleting {binObj}...");
+                    Console.WriteLine("Cleaning {0}...", Path.GetFileName(path));
+
+                    await CleanProjectOutputPaths(path, dryRun);
 
                     if (dryRun)
                     {
                         ResetConsoleColor();
                     }
 
-                    if (!dryRun)
-                    {
-                        Directory.Delete(binObj, recursive: true);
-                    }
+                    return 0;
                 }
-                catch (Exception ex)
+                else
                 {
                     ConsoleColorRed();
-                    Console.Error.WriteLine(ex.Message);
+                    Console.WriteLine("Extension type:{0} not supported", ext);
                     ResetConsoleColor();
+                    return 1;
                 }
             }
+            else
+            {
+                IEnumerable<string> allDeletableDirectories = Directory.EnumerateDirectories(directoryPath, "bin",
+                    new EnumerationOptions
+                    {
+                        RecurseSubdirectories = true,
+                        MatchCasing = MatchCasing.CaseInsensitive,
+                        ReturnSpecialDirectories = false
+                    })
+                    .Where(directory => directory.EndsWith("\\bin") || directory.EndsWith("/bin"))
+                    .Concat(
+                    Directory.EnumerateDirectories(directoryPath, "obj",
+                        new EnumerationOptions
+                        {
+                            RecurseSubdirectories = true,
+                            MatchCasing = MatchCasing.CaseInsensitive,
+                            ReturnSpecialDirectories = false
+                        })
+                        .Where(directory => directory.EndsWith("\\obj") || directory.EndsWith("/obj"))
+                    );
 
-            return 0;
+                if (allDeletableDirectories.Any() == false)
+                {
+                    // this is not an error
+                    Console.WriteLine("No bin/ or obj/ directories found to delete.");
+                    return 0;
+                }
+
+                foreach (var binObj in allDeletableDirectories)
+                {
+                    try
+                    {
+                        if (dryRun)
+                        {
+                            Console.Write("Dry run: ");
+                            ConsoleColorGray();
+                        }
+
+                        Console.WriteLine($"Deleting {binObj}...");
+
+                        if (dryRun)
+                        {
+                            ResetConsoleColor();
+                        }
+
+                        if (!dryRun)
+                        {
+                            Directory.Delete(binObj, recursive: true);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        ConsoleColorRed();
+                        Console.Error.WriteLine(ex.Message);
+                        ResetConsoleColor();
+                    }
+                }
+
+                return 0;
+            }
         }
         catch (Exception ex)
         {
@@ -147,6 +219,41 @@ internal class CleanCommand : RootCommand
             ResetConsoleColor();
             return 1;
         }
+    }
+
+    static async Task CleanProjectOutputPaths(string fullProjectpath, bool dryRun)
+    {
+        var ext = Path.GetExtension(fullProjectpath);
+        if (!File.Exists(fullProjectpath) || ext != ".csproj")
+            throw new ArgumentException("A project directory provided was not accurate.");
+        
+        string fullProjectDirectoryPath = Path.GetDirectoryName(fullProjectpath) ?? throw new ArgumentException("project path is invalid");
+
+        CommandBuilder cmd = await CommandRunner
+            .UsePowershell()
+            .StartProcess()
+            .AddCommand($"dotnet msbuild {fullProjectpath} -getProperty:BaseOutputPath", key: "binPath")
+            .AddCommand($"dotnet msbuild {fullProjectpath} -getProperty:BaseIntermediateOutputPath", key: "objPath")
+            .RunAsync();
+
+        string binPath = cmd.GetCommand("binPath").Output[1].Data;
+        string objPath = cmd.GetCommand("objPath").Output[1].Data;
+
+        string fullBin = Path.Combine(fullProjectDirectoryPath, binPath);
+        string fullObj = Path.Combine(fullProjectDirectoryPath, objPath);
+
+
+        Console.WriteLine("  Removing {0}...", fullBin);
+        if (!dryRun && Directory.Exists(fullBin))
+        {
+            Directory.Delete(fullBin, recursive: true);
+        }
+        Console.WriteLine("  Removing {0}...", fullObj);
+        if (!dryRun && Directory.Exists(fullObj))
+        {
+            Directory.Delete(fullObj, recursive: true);
+        }
+
     }
 
     static void ConsoleColorGray()
@@ -165,3 +272,5 @@ internal class CleanCommand : RootCommand
             Console.ResetColor();
     }
 }
+
+record ProjectOutputPaths(string BinPath, string ObjPath);

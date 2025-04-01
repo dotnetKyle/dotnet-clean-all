@@ -3,7 +3,7 @@
     "CleanAll": {
       "commandName": "Project",
       //"commandLineArgs": "-h"
-      "commandLineArgs": "CleanAll \"..\\..\\..\\..\\CleanAll.sln\" -dr"
+      "commandLineArgs": "CleanAll \"..\\..\\..\\..\\TestProject\\TestProject.csproj\" -dr"
     }
   }
 }
