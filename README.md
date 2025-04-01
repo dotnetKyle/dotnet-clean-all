@@ -2,30 +2,16 @@
 
 A dotnet tool that permanently removes all bin and obj folders from a directory's subdirectories.
 
-To install globally, just run:
+#### Installation 
 
-```bash
-dotnet tool install -g dotnetkyle.cleanall
-```
-
-Then run `CleanAll` in the directory that you want to recursively remove the bin and obj folders in.
-
+To install globally, just run: `dotnet tool install -g CleanAll`
 
 ## Usage
 
-Delete all from the current directory and it's sub-directories:
+Delete all the `bin\` and `obj\` folders from all the projects in a solution:
 
-```bash
-CleanAll
-```
-
-Test what the command would do to a specific directory (dry run):
-
-```bash
-CleanAll MyFolder --dry-run
-```
-
-Delete all from a solution's parent directory:
+ > Attempt to read the solution file, iterate through the projects
+ > and use msbuild to get the `bin\` and `obj\` folder paths.
 
 ```bash
 CleanAll MyFolder\MyProject.sln
@@ -33,6 +19,21 @@ CleanAll MyFolder\MyProject.sln
 
 Delete all from a project's parent directory:
 
+ > Use msbuild to get the bin and obj folder paths.
+
 ```bash
 CleanAll MyFolder\MyProject\MyProject.csproj
 ```
+
+Delete all from the current directory and it's sub-directories:
+
+```bash
+CleanAll
+```
+
+Test what the command would do without deleting anything (dry run):
+
+```bash
+CleanAll MyFolder --dry-run
+```
+
