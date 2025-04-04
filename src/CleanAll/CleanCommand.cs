@@ -189,7 +189,7 @@ internal class CleanCommand : RootCommand
                             ConsoleColorGray();
                         }
 
-                        Console.WriteLine($"Deleting {binObj}...");
+                        Console.WriteLine($"Deleting {binObj}");
 
                         if (dryRun)
                         {
