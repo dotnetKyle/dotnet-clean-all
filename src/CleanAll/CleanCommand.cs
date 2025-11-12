@@ -1,45 +1,19 @@
-﻿using System.CommandLine;
-using System.ComponentModel;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-using Microsoft.VisualStudio.SolutionPersistence;
+﻿using Microsoft.VisualStudio.SolutionPersistence;
 using Microsoft.VisualStudio.SolutionPersistence.Model;
 using Microsoft.VisualStudio.SolutionPersistence.Serializer;
-using Microsoft.VisualStudio.SolutionPersistence.Serializer.SlnV12;
+using MinimalCli;
 using ShellRunner;
+using System.CommandLine;
+using System.Runtime.InteropServices;
 
 namespace CleanAll;
 
-internal class CleanCommand : RootCommand
+internal class CleanCommand
 {
-    public CleanCommand() : base("CleanAll")
-    {
-        this.Description = "Delete all of the bin and obj directories and their contents in a solution or project folder.";
-        this.AddAlias("CleanAll");
-
-        Argument<string?> pathArgument = new("Solution|Project");
-        pathArgument.Description = "Path to the solution file, project file or directory to clean.";
-        pathArgument.SetDefaultValue(null);
-
-        Option<bool> dryRunOption = new("--dry-run");
-        dryRunOption.AddAlias("-dr");
-        dryRunOption.Description = "Run the command without removing anything so you can see what will be deleted.";
-        dryRunOption.SetDefaultValue(false);
-
-        // add all the arguments and options for the command
-        this.AddArgument(pathArgument);
-        this.AddOption(dryRunOption);
-
-        // set the handler
-        this.SetHandler(async (context) => {
-            string? path = context.ParseResult.GetValueForArgument(pathArgument);
-            bool dryRun = context.ParseResult.GetValueForOption(dryRunOption);
-
-            context.ExitCode = await ExecuteAsync(path, dryRun);
-        });
-    }
-
-    static async Task<int> ExecuteAsync(string? path, bool dryRun)
+    [RootHandler]
+    public static async Task<int> ExecuteAsync(
+        [Argument] string? path = null, 
+        bool dryRun = false)
     {
         try
         {
@@ -229,7 +203,7 @@ internal class CleanCommand : RootCommand
         
         string fullProjectDirectoryPath = Path.GetDirectoryName(fullProjectpath) ?? throw new ArgumentException("project path is invalid");
 
-        CommandBuilder cmd = await CommandRunner
+        ShellRunner.CommandBuilder cmd = await CommandRunner
             .UsePowershell()
             .StartProcess()
             .AddCommand($"dotnet msbuild {fullProjectpath} -getProperty:BaseOutputPath", key: "binPath")
