@@ -5,7 +5,7 @@ on:
     branches: [ '*' ]
 
 env:
-  BUILD_VERSION: 0.0.0.${{github.run_number}}
+  BUILD_VERSION: 0.0.1.${{github.run_number}}
   SLN_PATH: src/CleanAll.sln
 
 jobs:
