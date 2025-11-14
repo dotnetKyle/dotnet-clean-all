@@ -19,7 +19,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.VisualStudio.SolutionPersistence" Version="1.0.52" />
     <PackageReference Include="ShellRunner" Version="0.2.10-alpha" />
-    <PackageReference Include="MinimalCli" Version="2.0.0.37-alpha" />
+    <PackageReference Include="MinimalCli" Version="2.0.0.38" />
   </ItemGroup>
 
 	<ItemGroup>
