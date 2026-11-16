@@ -1,7 +1,8 @@
 ﻿<Solution>
   <Folder Name="/build/">
-    <File Path=".github/workflows/build-gate.yml" />
-    <File Path=".github/workflows/build.yml" />
+    <File Path=".github/workflows/cd-build.yml" />
+    <File Path=".github/workflows/pr-build.yml" />
+    <File Path=".github/workflows/release.yml" />
   </Folder>
   <Project Path="src/CleanAll/CleanAll.csproj" />
   <Project Path="src/TestProject/TestProject.csproj" />
