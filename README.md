@@ -14,10 +14,10 @@ Delete all the `bin\` and `obj\` folders from all the projects in a solution:
  > and use msbuild to get the `bin\` and `obj\` folder paths.
 
 ```bash
-CleanAll MyFolder\MyProject.sln
+CleanAll MyFolder\MyProject.slnx
 ```
 
-Delete all from a project's parent directory:
+Delete all from a project file:
 
  > Use msbuild to get the bin and obj folder paths.
 
@@ -25,7 +25,7 @@ Delete all from a project's parent directory:
 CleanAll MyFolder\MyProject\MyProject.csproj
 ```
 
-Delete all from the current directory and it's sub-directories:
+Delete all from the current directory and it's sub-directories (requires a solution or project file):
 
 ```bash
 CleanAll
@@ -37,3 +37,8 @@ Test what the command would do without deleting anything (dry run):
 CleanAll MyFolder --dry-run
 ```
 
+Help docs:
+
+```bash
+CleanAll --help
+```

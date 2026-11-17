@@ -7,6 +7,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
     steps:
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd #v6.0.2
     - name: Setup .NET
@@ -28,6 +30,11 @@ jobs:
         VERSION="${RELEASE_TAG#v}"
         echo "Using release tag: $VERSION"
         echo "PACKAGE_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+    - name: Write package release notes
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh api repos/${{ github.repository }}/releases/${{ github.event.release.id }} --jq '.body | if . == null or . == "" then "No release notes provided." else . end' > src/CleanAll/RELEASENOTES.md
 
     - name: Pack NuGet package
       run: dotnet pack src/CleanAll/CleanAll.csproj -c Release --no-build -p:PackageVersion=${PACKAGE_VERSION} -o ./packages

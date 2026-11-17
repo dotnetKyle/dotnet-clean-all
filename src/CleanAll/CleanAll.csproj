@@ -10,10 +10,12 @@
 	<Authors>dotnetKyle</Authors>
 	<Description>A package that removes all bin and obj files that sometimes a 3rd party tool leaves behind after a dotnet clean is ran.</Description>
 	<PackageTags>dotnet, clean</PackageTags>
-	<PackageReleaseNotes>Initial version, alpha</PackageReleaseNotes>
 	<PackageProjectUrl>https://github.com/dotnetKyle/dotnet-clean-all</PackageProjectUrl>
 	<RepositoryUrl>https://github.com/dotnetKyle/dotnet-clean-all</RepositoryUrl>
 	<PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageReleaseNotes>
+        $([System.IO.File]::ReadAllText("$(MSBuildProjectDirectory)/RELEASENOTES.md"))
+    </PackageReleaseNotes>
   </PropertyGroup>
 
   <ItemGroup>
