@@ -108,8 +108,9 @@ internal class CleanCommand
 
                             string details = "";
 
-                            if (bin is not null) details += $"\n  Removed: {bin}";
-                            if (obj is not null) details += $"\n  Removed: {obj}";
+                            // empty msbuild properties should not produce blank 'removed' entries.
+                            if (!string.IsNullOrWhiteSpace(bin)) details += $"\n  Removed: {bin}";
+                            if (!string.IsNullOrWhiteSpace(obj)) details += $"\n  Removed: {obj}";
 
                             return $"Cleaned {project.ActualDisplayName}{details}";
                         }
@@ -154,9 +155,10 @@ internal class CleanCommand
 
                     ProjectOutputPaths outputPaths = await CleanProjectOutputPaths(path, dryRun);
 
-                    if (outputPaths.Bin is not null)
+                    // empty msbuild properties should not produce a blank 'removed' entry.
+                    if (!string.IsNullOrWhiteSpace(outputPaths.Bin))
                         Console.WriteLine("  Removed: {0}", outputPaths.Bin.Contains("..") ? outputPaths.FullBin : outputPaths.Bin);
-                    if (outputPaths.Obj is not null)
+                    if (!string.IsNullOrWhiteSpace(outputPaths.Obj))
                         Console.WriteLine("  Removed: {0}", outputPaths.Obj.Contains("..") ? outputPaths.FullObj : outputPaths.Obj);
 
                     if (dryRun)
@@ -199,22 +201,57 @@ internal class CleanCommand
         ShellRunner.CommandBuilder cmd = await CommandRunner
             .UsePowershell()
             .StartProcess()
+            // BaseOutputPath & BaseIntermediateOutputPath are the correct properties for modern apps,
+            //   legacy apps fall back to OutputPath & IntermediateOutputPath
             .AddCommand($"dotnet msbuild \"{fullProjectpath}\" -getProperty:BaseOutputPath", key: "binPath")
+            .AddCommand($"dotnet msbuild \"{fullProjectpath}\" -getProperty:OutputPath", key: "outputPath")
             .AddCommand($"dotnet msbuild \"{fullProjectpath}\" -getProperty:BaseIntermediateOutputPath", key: "objPath")
+            .AddCommand($"dotnet msbuild \"{fullProjectpath}\" -getProperty:IntermediateOutputPath", key: "intermediateOutputPath")
             .RunAsync();
 
-        string? binPath = cmd.GetCommand("binPath").Output[1].Data;
-        string? objPath = cmd.GetCommand("objPath").Output[1].Data;
+        string? GetPropertyValue(string key)
+        {
+            IReadOnlyList<ShellRunner.Output> output = cmd.GetCommand(key).Output;
+            return output.Count == 0 ? null : output[output.Count - 1].Data;
+        }
 
-        string? fullBin = binPath is not null ? Path.Combine(fullProjectDirectoryPath, binPath) : null;
-        string? fullObj = objPath is not null ? Path.Combine(fullProjectDirectoryPath, objPath) : null;
+        string? baseBinPath = GetPropertyValue("binPath");
+        string? baseObjPath = GetPropertyValue("objPath");
 
-        if (!Directory.Exists(fullBin))
+        // legacy projects use these instead of the Base* properties
+        string? binPath = string.IsNullOrWhiteSpace(baseBinPath) ? GetPropertyValue("outputPath") : baseBinPath;
+        string? objPath = string.IsNullOrWhiteSpace(baseObjPath) ? GetPropertyValue("intermediateOutputPath") : baseObjPath;
+
+        // do not combine an empty property with the project directory or it could delete the whole project
+        string? ResolveOutputPath(string? outputPath)
+        {
+            if (string.IsNullOrWhiteSpace(outputPath))
+                return null;
+
+            string fullOutputPath = Path.GetFullPath(Path.Combine(fullProjectDirectoryPath, outputPath));
+            string fullProjectDirectory = Path.GetFullPath(fullProjectDirectoryPath);
+
+            string trimmedOutput = Path.TrimEndingDirectorySeparator(fullOutputPath);
+            string trimmedProject = Path.TrimEndingDirectorySeparator(fullProjectDirectory);
+            StringComparison pathComparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+            
+            // a configured output path must never resolve to the project directory itself
+            return trimmedOutput.Equals(trimmedProject, pathComparison)
+                ? null
+                : fullOutputPath;
+        }
+
+        string? fullBin = ResolveOutputPath(binPath);
+        string? fullObj = ResolveOutputPath(objPath);
+
+        if (fullBin is null || !Directory.Exists(fullBin))
         {
             binPath = null;
             fullBin = null;
         }
-        if (!Directory.Exists(fullObj))
+        if (fullObj is null || !Directory.Exists(fullObj))
         {
             objPath = null;
             fullObj = null;
