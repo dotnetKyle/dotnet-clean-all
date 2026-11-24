@@ -5,6 +5,7 @@ using MinimalCli;
 using ShellRunner;
 using System.CommandLine;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 
 namespace CleanAll;
 
@@ -201,26 +202,62 @@ internal class CleanCommand
         ShellRunner.CommandBuilder cmd = await CommandRunner
             .UsePowershell()
             .StartProcess()
-            // BaseOutputPath & BaseIntermediateOutputPath are the correct properties for modern apps,
-            //   legacy apps fall back to OutputPath & IntermediateOutputPath
-            .AddCommand($"dotnet msbuild \"{fullProjectpath}\" -getProperty:BaseOutputPath", key: "binPath")
-            .AddCommand($"dotnet msbuild \"{fullProjectpath}\" -getProperty:OutputPath", key: "outputPath")
-            .AddCommand($"dotnet msbuild \"{fullProjectpath}\" -getProperty:BaseIntermediateOutputPath", key: "objPath")
-            .AddCommand($"dotnet msbuild \"{fullProjectpath}\" -getProperty:IntermediateOutputPath", key: "intermediateOutputPath")
+            .AddCommand($"dotnet msbuild \"{fullProjectpath}\" \"-getProperty:Configuration;BaseOutputPath;OutputPath;BaseIntermediateOutputPath;IntermediateOutputPath\"", key: "outputPaths")
             .RunAsync();
 
-        string? GetPropertyValue(string key)
+        IProcessedCommand propertyCommand = cmd.GetCommand("outputPaths");
+        if (propertyCommand.IsError)
         {
-            IReadOnlyList<ShellRunner.Output> output = cmd.GetCommand(key).Output;
-            return output.Count == 0 ? null : output[output.Count - 1].Data;
+            string error = string.Join(
+                Environment.NewLine,
+                propertyCommand.Output.Where(output => output.IsError).Select(output => output.Data));
+            throw new InvalidOperationException($"MSBuild failed to return output paths. {error}");
         }
 
-        string? baseBinPath = GetPropertyValue("binPath");
-        string? baseObjPath = GetPropertyValue("objPath");
+        string[] commandOutput = propertyCommand.Output
+            .Where(output => !output.IsError)
+            .Select(output => output.Data)
+            .ToArray();
 
-        // legacy projects use these instead of the Base* properties
-        string? binPath = string.IsNullOrWhiteSpace(baseBinPath) ? GetPropertyValue("outputPath") : baseBinPath;
-        string? objPath = string.IsNullOrWhiteSpace(baseObjPath) ? GetPropertyValue("intermediateOutputPath") : baseObjPath;
+        // PS sometimes echoes the command before msbuild's json response so look for json start
+        int jsonStart = Array.FindIndex(commandOutput, line => line.TrimStart().StartsWith('{'));
+        int jsonEnd = Array.FindLastIndex(commandOutput, line => line.TrimEnd().EndsWith('}'));
+        if (jsonStart < 0 || jsonEnd < jsonStart)
+            throw new InvalidOperationException("MSBuild did not return valid output-path JSON.");
+
+        string jsonOutput = string.Join(
+            Environment.NewLine,
+            commandOutput.Skip(jsonStart).Take(jsonEnd - jsonStart + 1));
+        using JsonDocument propertyDocument = JsonDocument.Parse(jsonOutput);
+        JsonElement properties = propertyDocument.RootElement.GetProperty("Properties");
+        string? GetPropertyValue(string name) => properties.GetProperty(name).GetString();
+        string? configuration = GetPropertyValue("Configuration");
+
+        // strip a config directory only when it matches the evaluated config
+        string? GetConfigurationIndependentPath(string? outputPath)
+        {
+            if (string.IsNullOrWhiteSpace(outputPath) || string.IsNullOrWhiteSpace(configuration))
+                return outputPath;
+
+            string trimmedPath = Path.TrimEndingDirectorySeparator(outputPath);
+            if (!string.Equals(Path.GetFileName(trimmedPath), configuration, StringComparison.OrdinalIgnoreCase))
+                return outputPath;
+
+            return Path.GetDirectoryName(trimmedPath);
+        }
+
+        string? binPath = GetPropertyValue("BaseOutputPath");
+        string? objPath = GetPropertyValue("BaseIntermediateOutputPath");
+
+        // legacy projs expose config-specific paths like bin/Debug, use the parent directory to clean all configs
+        if (string.IsNullOrWhiteSpace(binPath))
+        {
+            binPath = GetConfigurationIndependentPath(GetPropertyValue("OutputPath"));
+        }
+        if (string.IsNullOrWhiteSpace(objPath))
+        {
+            objPath = GetConfigurationIndependentPath(GetPropertyValue("IntermediateOutputPath"));
+        }
 
         // do not combine an empty property with the project directory or it could delete the whole project
         string? ResolveOutputPath(string? outputPath)
