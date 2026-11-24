@@ -114,15 +114,17 @@ internal class CleanCommand
                             return $"Cleaned {project.ActualDisplayName}{details}";
                         }
 
-                        Task<string>[] cleanAllTasks = slnModel.SolutionProjects
+                        List<Task<string>> cleanAllTasks = slnModel.SolutionProjects
                             .Select(project => select(project))
-                            .ToArray();
+                            .ToList();
 
-                        await Task.WhenAll(cleanAllTasks);
-
-                        foreach(Task<string> task in cleanAllTasks)
+                        while(cleanAllTasks.Count > 0)
                         {
-                            string consoleText = task.Result;
+                            Task<string> completedTask = await Task.WhenAny(cleanAllTasks);
+                            cleanAllTasks.Remove(completedTask);
+
+                            string consoleText = await completedTask;
+
                             if(dryRun)
                             {
                                 Console.Write("Dry run: ");
