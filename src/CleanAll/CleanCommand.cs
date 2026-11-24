@@ -5,6 +5,7 @@ using MinimalCli;
 using ShellRunner;
 using System.CommandLine;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 
 namespace CleanAll;
 
@@ -108,21 +109,24 @@ internal class CleanCommand
 
                             string details = "";
 
-                            if (bin is not null) details += $"\n  Removed: {bin}";
-                            if (obj is not null) details += $"\n  Removed: {obj}";
+                            // empty msbuild properties should not produce blank 'removed' entries.
+                            if (!string.IsNullOrWhiteSpace(bin)) details += $"\n  Removed: {bin}";
+                            if (!string.IsNullOrWhiteSpace(obj)) details += $"\n  Removed: {obj}";
 
                             return $"Cleaned {project.ActualDisplayName}{details}";
                         }
 
-                        Task<string>[] cleanAllTasks = slnModel.SolutionProjects
+                        List<Task<string>> cleanAllTasks = slnModel.SolutionProjects
                             .Select(project => select(project))
-                            .ToArray();
+                            .ToList();
 
-                        await Task.WhenAll(cleanAllTasks);
-
-                        foreach(Task<string> task in cleanAllTasks)
+                        while(cleanAllTasks.Count > 0)
                         {
-                            string consoleText = task.Result;
+                            Task<string> completedTask = await Task.WhenAny(cleanAllTasks);
+                            cleanAllTasks.Remove(completedTask);
+
+                            string consoleText = await completedTask;
+
                             if(dryRun)
                             {
                                 Console.Write("Dry run: ");
@@ -152,9 +156,10 @@ internal class CleanCommand
 
                     ProjectOutputPaths outputPaths = await CleanProjectOutputPaths(path, dryRun);
 
-                    if (outputPaths.Bin is not null)
+                    // empty msbuild properties should not produce a blank 'removed' entry.
+                    if (!string.IsNullOrWhiteSpace(outputPaths.Bin))
                         Console.WriteLine("  Removed: {0}", outputPaths.Bin.Contains("..") ? outputPaths.FullBin : outputPaths.Bin);
-                    if (outputPaths.Obj is not null)
+                    if (!string.IsNullOrWhiteSpace(outputPaths.Obj))
                         Console.WriteLine("  Removed: {0}", outputPaths.Obj.Contains("..") ? outputPaths.FullObj : outputPaths.Obj);
 
                     if (dryRun)
@@ -197,22 +202,93 @@ internal class CleanCommand
         ShellRunner.CommandBuilder cmd = await CommandRunner
             .UsePowershell()
             .StartProcess()
-            .AddCommand($"dotnet msbuild \"{fullProjectpath}\" -getProperty:BaseOutputPath", key: "binPath")
-            .AddCommand($"dotnet msbuild \"{fullProjectpath}\" -getProperty:BaseIntermediateOutputPath", key: "objPath")
+            .AddCommand($"dotnet msbuild \"{fullProjectpath}\" \"-getProperty:Configuration;BaseOutputPath;OutputPath;BaseIntermediateOutputPath;IntermediateOutputPath\"", key: "outputPaths")
             .RunAsync();
 
-        string? binPath = cmd.GetCommand("binPath").Output[1].Data;
-        string? objPath = cmd.GetCommand("objPath").Output[1].Data;
+        IProcessedCommand propertyCommand = cmd.GetCommand("outputPaths");
+        if (propertyCommand.IsError)
+        {
+            string error = string.Join(
+                Environment.NewLine,
+                propertyCommand.Output.Where(output => output.IsError).Select(output => output.Data));
+            throw new InvalidOperationException($"MSBuild failed to return output paths. {error}");
+        }
 
-        string? fullBin = binPath is not null ? Path.Combine(fullProjectDirectoryPath, binPath) : null;
-        string? fullObj = objPath is not null ? Path.Combine(fullProjectDirectoryPath, objPath) : null;
+        string[] commandOutput = propertyCommand.Output
+            .Where(output => !output.IsError)
+            .Select(output => output.Data)
+            .ToArray();
 
-        if (!Directory.Exists(fullBin))
+        // PS sometimes echoes the command before msbuild's json response so look for json start
+        int jsonStart = Array.FindIndex(commandOutput, line => line.TrimStart().StartsWith('{'));
+        int jsonEnd = Array.FindLastIndex(commandOutput, line => line.TrimEnd().EndsWith('}'));
+        if (jsonStart < 0 || jsonEnd < jsonStart)
+            throw new InvalidOperationException("MSBuild did not return valid output-path JSON.");
+
+        string jsonOutput = string.Join(
+            Environment.NewLine,
+            commandOutput.Skip(jsonStart).Take(jsonEnd - jsonStart + 1));
+        using JsonDocument propertyDocument = JsonDocument.Parse(jsonOutput);
+        JsonElement properties = propertyDocument.RootElement.GetProperty("Properties");
+        string? GetPropertyValue(string name) => properties.GetProperty(name).GetString();
+        string? configuration = GetPropertyValue("Configuration");
+
+        // strip a config directory only when it matches the evaluated config
+        string? GetConfigurationIndependentPath(string? outputPath)
+        {
+            if (string.IsNullOrWhiteSpace(outputPath) || string.IsNullOrWhiteSpace(configuration))
+                return outputPath;
+
+            string trimmedPath = Path.TrimEndingDirectorySeparator(outputPath);
+            if (!string.Equals(Path.GetFileName(trimmedPath), configuration, StringComparison.OrdinalIgnoreCase))
+                return outputPath;
+
+            return Path.GetDirectoryName(trimmedPath);
+        }
+
+        string? binPath = GetPropertyValue("BaseOutputPath");
+        string? objPath = GetPropertyValue("BaseIntermediateOutputPath");
+
+        // legacy projs expose config-specific paths like bin/Debug, use the parent directory to clean all configs
+        if (string.IsNullOrWhiteSpace(binPath))
+        {
+            binPath = GetConfigurationIndependentPath(GetPropertyValue("OutputPath"));
+        }
+        if (string.IsNullOrWhiteSpace(objPath))
+        {
+            objPath = GetConfigurationIndependentPath(GetPropertyValue("IntermediateOutputPath"));
+        }
+
+        // do not combine an empty property with the project directory or it could delete the whole project
+        string? ResolveOutputPath(string? outputPath)
+        {
+            if (string.IsNullOrWhiteSpace(outputPath))
+                return null;
+
+            string fullOutputPath = Path.GetFullPath(Path.Combine(fullProjectDirectoryPath, outputPath));
+            string fullProjectDirectory = Path.GetFullPath(fullProjectDirectoryPath);
+
+            string trimmedOutput = Path.TrimEndingDirectorySeparator(fullOutputPath);
+            string trimmedProject = Path.TrimEndingDirectorySeparator(fullProjectDirectory);
+            StringComparison pathComparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+            
+            // a configured output path must never resolve to the project directory itself
+            return trimmedOutput.Equals(trimmedProject, pathComparison)
+                ? null
+                : fullOutputPath;
+        }
+
+        string? fullBin = ResolveOutputPath(binPath);
+        string? fullObj = ResolveOutputPath(objPath);
+
+        if (fullBin is null || !Directory.Exists(fullBin))
         {
             binPath = null;
             fullBin = null;
         }
-        if (!Directory.Exists(fullObj))
+        if (fullObj is null || !Directory.Exists(fullObj))
         {
             objPath = null;
             fullObj = null;
